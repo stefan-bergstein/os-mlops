@@ -2,8 +2,9 @@ from glob import glob
 from math import floor
 from os import makedirs, path
 from shutil import copy
+import yaml
 
-from numpy import array, random
+from numpy import random
 
 
 def preprocess_data(data_folder='./data'):
@@ -16,85 +17,54 @@ def preprocess_data(data_folder='./data'):
                 makedirs(local_folder)
 
     download_folder = f'{data_folder}/download'
-    bicycle_images = _get_filenames(f'{download_folder}/bicycle/images')
-    car_images = _get_filenames(f'{download_folder}/car/images')
-    traffic_sign_images = _get_filenames(
-        f'{download_folder}/traffic sign/images'
-    )
+    class_labels = _read_class_labels('configuration.yaml')
 
-    duplicates1 = bicycle_images & car_images
-    duplicates2 = car_images & traffic_sign_images
-    duplicates3 = traffic_sign_images & bicycle_images
-    duplicate_sum = len(duplicates1) + len(duplicates2) + len(duplicates3)
-    print(f'Found {duplicate_sum} duplicates')
+    folder_names = [class_name.lower() for class_name in class_labels]
+    images = [
+        _get_filenames(f'{download_folder}/{folder_name}/images')
+        for folder_name in folder_names
+    ]
 
-    bicycle_images -= duplicates1
-    car_images -= duplicates2
-    traffic_sign_images -= duplicates3
-    print(
-        f'Deduplicated data set contains '
-        f'{len(bicycle_images)} bicycle images, '
-        f'{len(car_images)} car images, and '
-        f'{len(traffic_sign_images)} traffic sign images.'
-    )
+    duplicates_0_1 = images[0] & images[1]
+    duplicates_1_2 = images[1] & images[2]
+    duplicates_2_0 = images[2] & images[0]
 
-    bicycle_images = array(list(bicycle_images))
-    car_images = array(list(car_images))
-    traffic_sign_images = array(list(traffic_sign_images))
+    images[0] -= duplicates_0_1
+    images[1] -= duplicates_1_2
+    images[2] -= duplicates_2_0
 
-    # Use the same random seed for reproducability
     random.seed(42)
-    random.shuffle(bicycle_images)
-    random.shuffle(car_images)
-    random.shuffle(traffic_sign_images)
-
     train_ratio = 0.75
     val_ratio = 0.125
-
-    # Bicycle data
-    bicycle_train_size = floor(train_ratio * len(bicycle_images))
-    bicycle_val_size = floor(val_ratio * len(bicycle_images))
-    _split_dataset(
-        download_folder,
-        data_folder,
-        'bicycle',
-        bicycle_images,
-        train_size=bicycle_train_size,
-        val_size=bicycle_val_size
-    )
-
-    # Car data
-    car_train_size = floor(train_ratio * len(car_images))
-    car_val_size = floor(val_ratio * len(car_images))
-    _split_dataset(
-        download_folder,
-        data_folder,
-        'car',
-        car_images,
-        train_size=car_train_size,
-        val_size=car_val_size
-    )
-
-    # Traffic sign data
-    traffic_sign_train_size = floor(train_ratio * len(traffic_sign_images))
-    traffic_sign_val_size = floor(val_ratio * len(traffic_sign_images))
-    _split_dataset(
-        download_folder,
-        data_folder,
-        'traffic sign',
-        traffic_sign_images,
-        train_size=traffic_sign_train_size,
-        val_size=traffic_sign_val_size
-    )
+    for i, image_set in enumerate(images):
+        image_list = list(image_set)
+        random.shuffle(image_list)
+        train_size = floor(train_ratio * len(image_list))
+        val_size = floor(val_ratio * len(image_list))
+        _split_dataset(
+            download_folder,
+            data_folder,
+            folder_names[i],
+            image_list,
+            train_size=train_size,
+            val_size=val_size,
+        )
 
     print('data processing done')
+
+
+def _read_class_labels(configuration_file_path):
+    with open(configuration_file_path, 'r') as config_file:
+        config = yaml.load(config_file.read(), Loader=yaml.SafeLoader)
+
+    class_labels = config['names']
+    return class_labels
 
 
 def _get_filenames(folder):
     filenames = set()
 
     for local_path in glob(path.join(folder, '*.jpg')):
-        # Extract the filename
         filename = path.split(local_path)[-1]
         filenames.add(filename)
 
